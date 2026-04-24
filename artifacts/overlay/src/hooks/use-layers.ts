@@ -16,6 +16,7 @@ export type Layer = {
 };
 
 const STORAGE_KEY = "stack-overlay:layers";
+const BACKGROUND_STORAGE_KEY = "stack-overlay:background";
 
 export function useLayers() {
   const [layers, setLayers] = useState<Layer[]>(() => {
@@ -30,9 +31,31 @@ export function useLayers() {
     return [];
   });
 
+  const [background, setBackgroundState] = useState<string>(() => {
+    try {
+      return localStorage.getItem(BACKGROUND_STORAGE_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(layers));
   }, [layers]);
+
+  useEffect(() => {
+    try {
+      if (background) {
+        localStorage.setItem(BACKGROUND_STORAGE_KEY, background);
+      } else {
+        localStorage.removeItem(BACKGROUND_STORAGE_KEY);
+      }
+    } catch {
+      /* noop */
+    }
+  }, [background]);
+
+  const setBackground = (url: string) => setBackgroundState(url);
 
   const addLayer = (url: string, label: string) => {
     setLayers((prev) => [
@@ -57,7 +80,25 @@ export function useLayers() {
   };
 
   const removeLayer = (id: string) => {
-    setLayers((prev) => prev.map(l => l).filter((layer) => layer.id !== id));
+    setLayers((prev) => prev.filter((layer) => layer.id !== id));
+  };
+
+  const duplicateLayer = (id: string) => {
+    setLayers((prev) => {
+      const idx = prev.findIndex((l) => l.id === id);
+      if (idx === -1) return prev;
+      const original = prev[idx];
+      const copy: Layer = {
+        ...original,
+        id: nanoid(),
+        label: `${original.label} (copy)`,
+        x: Math.min(100 - original.width, original.x + 2),
+        y: Math.min(100 - original.height, original.y + 2),
+      };
+      const next = [...prev];
+      next.splice(idx + 1, 0, copy);
+      return next;
+    });
   };
 
   const moveLayerUp = (index: number) => {
@@ -87,7 +128,10 @@ export function useLayers() {
     addLayer,
     updateLayer,
     removeLayer,
+    duplicateLayer,
     moveLayerUp,
     moveLayerDown,
+    background,
+    setBackground,
   };
 }

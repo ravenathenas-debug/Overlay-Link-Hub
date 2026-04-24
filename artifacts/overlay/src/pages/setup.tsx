@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Trash2, Copy, Plus, ArrowUp, ArrowDown, ExternalLink, Settings2, LayoutTemplate, Magnet, Monitor, Smartphone, ArrowUpLeft, ArrowUpRight, ArrowDownLeft, ArrowDownRight, Square, Maximize } from "lucide-react";
+import { Trash2, Copy, Plus, ArrowUp, ArrowDown, ExternalLink, Settings2, LayoutTemplate, Magnet, Monitor, Smartphone, ArrowUpLeft, ArrowUpRight, ArrowDownLeft, ArrowDownRight, Square, Maximize, CopyPlus, Image as ImageIcon, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import LZString from "lz-string";
 
@@ -14,7 +14,7 @@ type Aspect = "16:9" | "9:16";
 const ASPECT_STORAGE_KEY = "stack-overlay:aspect";
 
 export default function SetupPage() {
-  const { layers, addLayer, updateLayer, removeLayer, moveLayerUp, moveLayerDown } = useLayers();
+  const { layers, addLayer, updateLayer, removeLayer, duplicateLayer, moveLayerUp, moveLayerDown, background, setBackground } = useLayers();
   const [newUrl, setNewUrl] = useState("");
   const [newLabel, setNewLabel] = useState("");
   const [aspect, setAspect] = useState<Aspect>(() => {
@@ -67,15 +67,15 @@ export default function SetupPage() {
   };
 
   const generatedUrl = useMemo(() => {
-    if (layers.length === 0) return "";
-    const payload = JSON.stringify(layers);
+    if (layers.length === 0 && !background) return "";
+    const payload = JSON.stringify({ layers, background: background || undefined });
     const compressed = LZString.compressToEncodedURIComponent(payload);
-    
+
     // Construct the absolute URL manually as per instructions
     const origin = window.location.origin;
     const base = import.meta.env.BASE_URL.replace(/\/$/, "");
     return `${origin}${base}/overlay?c=${compressed}`;
-  }, [layers]);
+  }, [layers, background]);
 
   const copyToClipboard = async () => {
     if (!generatedUrl) return;
@@ -104,6 +104,36 @@ export default function SetupPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="space-y-2 bg-muted/30 p-4 rounded-xl border border-border/50">
+            <Label htmlFor="bg-url" className="flex items-center gap-2">
+              <ImageIcon size={14} /> Background Image / GIF URL
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="bg-url"
+                placeholder="https://example.com/background.gif"
+                value={background}
+                onChange={(e) => setBackground(e.target.value)}
+                className="text-xs"
+              />
+              {background && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  onClick={() => setBackground("")}
+                  aria-label="Clear background"
+                  title="Clear background"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Paste a direct image or GIF URL. Renders behind every layer.
+            </p>
+          </div>
+
           <form onSubmit={handleAddLayer} className="space-y-4 bg-muted/30 p-4 rounded-xl border border-border/50">
             <div>
               <Label htmlFor="url">Browser Source URL</Label>
@@ -159,15 +189,18 @@ export default function SetupPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveLayerUp(index)} disabled={index === 0}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveLayerUp(index)} disabled={index === 0} title="Move up" aria-label="Move up">
                           <ArrowUp size={14} />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveLayerDown(index)} disabled={index === layers.length - 1}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveLayerDown(index)} disabled={index === layers.length - 1} title="Move down" aria-label="Move down">
                           <ArrowDown size={14} />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => duplicateLayer(layer.id)} title="Duplicate layer" aria-label="Duplicate layer">
+                          <CopyPlus size={14} />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/90" onClick={() => {
                           if (confirm('Remove this layer?')) removeLayer(layer.id);
-                        }}>
+                        }} title="Remove layer" aria-label="Remove layer">
                           <Trash2 size={14} />
                         </Button>
                       </div>
@@ -247,6 +280,7 @@ export default function SetupPage() {
           updateLayer={updateLayer}
           aspect={aspect}
           setAspect={setAspectAndSave}
+          background={background}
         />
       </div>
     </div>
@@ -258,13 +292,14 @@ type PreviewCanvasProps = {
   updateLayer: (id: string, patch: Partial<Layer>) => void;
   aspect: Aspect;
   setAspect: (a: Aspect) => void;
+  background: string;
 };
 
 const GRID_STEP = 5;
 
 type Preset = "tl" | "tr" | "center" | "bl" | "br" | "fill";
 
-function PreviewCanvas({ layers, updateLayer, aspect, setAspect }: PreviewCanvasProps) {
+function PreviewCanvas({ layers, updateLayer, aspect, setAspect, background }: PreviewCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [snap, setSnap] = useState(false);
@@ -391,6 +426,15 @@ function PreviewCanvas({ layers, updateLayer, aspect, setAspect }: PreviewCanvas
             if (e.target === e.currentTarget) setActiveId(null);
           }}
         >
+          {background && (
+            <img
+              src={background}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+              draggable={false}
+            />
+          )}
+
           {snap && (
             <div
               aria-hidden
