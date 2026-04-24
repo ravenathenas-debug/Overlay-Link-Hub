@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { useLayers, Layer } from "@/hooks/use-layers";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -222,37 +222,311 @@ export default function SetupPage() {
       {/* Right Content - Preview */}
       <div className="flex-1 bg-background flex items-center justify-center p-8 overflow-hidden relative">
         <div className="absolute inset-0 checkered-pattern opacity-50 z-0"></div>
-        
-        <div className="relative w-full max-w-5xl aspect-video bg-black/40 border border-white/10 rounded-xl overflow-hidden shadow-2xl z-10 ring-1 ring-white/5">
-          {layers.filter(l => l.visible).map(layer => (
-            <div
-              key={layer.id}
-              className="absolute border-2 border-primary/40 bg-primary/10 transition-all duration-200"
-              style={{
-                left: `${layer.x}%`,
-                top: `${layer.y}%`,
-                width: `${layer.width}%`,
-                height: `${layer.height}%`,
-              }}
-            >
-              <div className="absolute -top-6 left-[-2px] bg-primary/80 text-white text-[10px] px-2 py-0.5 rounded-t font-medium truncate max-w-full">
-                {layer.label}
-              </div>
-              <iframe
-                src={layer.url}
-                className="w-full h-full pointer-events-none opacity-80"
-                sandbox="allow-scripts allow-same-origin"
-              />
-            </div>
-          ))}
-          
-          {layers.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/50 font-medium">
-              16:9 OBS Canvas Preview
-            </div>
-          )}
-        </div>
+
+        <PreviewCanvas
+          layers={layers}
+          updateLayer={updateLayer}
+        />
       </div>
+    </div>
+  );
+}
+
+type PreviewCanvasProps = {
+  layers: Layer[];
+  updateLayer: (id: string, patch: Partial<Layer>) => void;
+};
+
+function PreviewCanvas({ layers, updateLayer }: PreviewCanvasProps) {
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  return (
+    <div
+      ref={canvasRef}
+      className="relative w-full max-w-5xl aspect-video bg-black/40 border border-white/10 rounded-xl overflow-hidden shadow-2xl z-10 ring-1 ring-white/5"
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) setActiveId(null);
+      }}
+    >
+      {layers.filter((l) => l.visible).map((layer) => (
+        <InteractiveLayer
+          key={layer.id}
+          layer={layer}
+          canvasRef={canvasRef}
+          isActive={activeId === layer.id}
+          onActivate={() => setActiveId(layer.id)}
+          updateLayer={updateLayer}
+        />
+      ))}
+
+      {layers.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/50 font-medium pointer-events-none">
+          16:9 OBS Canvas Preview
+        </div>
+      )}
+    </div>
+  );
+}
+
+type InteractiveLayerProps = {
+  layer: Layer;
+  canvasRef: React.RefObject<HTMLDivElement | null>;
+  isActive: boolean;
+  onActivate: () => void;
+  updateLayer: (id: string, patch: Partial<Layer>) => void;
+};
+
+type DragMode =
+  | "move"
+  | "n"
+  | "s"
+  | "e"
+  | "w"
+  | "ne"
+  | "nw"
+  | "se"
+  | "sw";
+
+const MIN_PCT = 4;
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function InteractiveLayer({
+  layer,
+  canvasRef,
+  isActive,
+  onActivate,
+  updateLayer,
+}: InteractiveLayerProps) {
+  const startRef = useRef<{
+    pointerId: number;
+    mode: DragMode;
+    startX: number;
+    startY: number;
+    startLayer: { x: number; y: number; width: number; height: number };
+    canvasW: number;
+    canvasH: number;
+    target: HTMLElement;
+  } | null>(null);
+
+  const beginDrag = useCallback(
+    (mode: DragMode) =>
+      (e: React.PointerEvent<HTMLElement>) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onActivate();
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        startRef.current = {
+          pointerId: e.pointerId,
+          mode,
+          startX: e.clientX,
+          startY: e.clientY,
+          startLayer: {
+            x: layer.x,
+            y: layer.y,
+            width: layer.width,
+            height: layer.height,
+          },
+          canvasW: rect.width,
+          canvasH: rect.height,
+          target: e.currentTarget,
+        };
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          /* noop */
+        }
+      },
+    [canvasRef, layer.x, layer.y, layer.width, layer.height, onActivate]
+  );
+
+  const handleMove = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      const s = startRef.current;
+      if (!s || s.pointerId !== e.pointerId) return;
+      const dxPct = ((e.clientX - s.startX) / s.canvasW) * 100;
+      const dyPct = ((e.clientY - s.startY) / s.canvasH) * 100;
+
+      let { x, y, width, height } = s.startLayer;
+
+      switch (s.mode) {
+        case "move":
+          x = clamp(s.startLayer.x + dxPct, 0, 100 - width);
+          y = clamp(s.startLayer.y + dyPct, 0, 100 - height);
+          break;
+        case "e":
+          width = clamp(s.startLayer.width + dxPct, MIN_PCT, 100 - x);
+          break;
+        case "w": {
+          const newW = clamp(s.startLayer.width - dxPct, MIN_PCT, s.startLayer.x + s.startLayer.width);
+          x = s.startLayer.x + (s.startLayer.width - newW);
+          width = newW;
+          break;
+        }
+        case "s":
+          height = clamp(s.startLayer.height + dyPct, MIN_PCT, 100 - y);
+          break;
+        case "n": {
+          const newH = clamp(s.startLayer.height - dyPct, MIN_PCT, s.startLayer.y + s.startLayer.height);
+          y = s.startLayer.y + (s.startLayer.height - newH);
+          height = newH;
+          break;
+        }
+        case "ne": {
+          width = clamp(s.startLayer.width + dxPct, MIN_PCT, 100 - x);
+          const newH = clamp(s.startLayer.height - dyPct, MIN_PCT, s.startLayer.y + s.startLayer.height);
+          y = s.startLayer.y + (s.startLayer.height - newH);
+          height = newH;
+          break;
+        }
+        case "nw": {
+          const newW = clamp(s.startLayer.width - dxPct, MIN_PCT, s.startLayer.x + s.startLayer.width);
+          x = s.startLayer.x + (s.startLayer.width - newW);
+          width = newW;
+          const newH = clamp(s.startLayer.height - dyPct, MIN_PCT, s.startLayer.y + s.startLayer.height);
+          y = s.startLayer.y + (s.startLayer.height - newH);
+          height = newH;
+          break;
+        }
+        case "se":
+          width = clamp(s.startLayer.width + dxPct, MIN_PCT, 100 - x);
+          height = clamp(s.startLayer.height + dyPct, MIN_PCT, 100 - y);
+          break;
+        case "sw": {
+          const newW = clamp(s.startLayer.width - dxPct, MIN_PCT, s.startLayer.x + s.startLayer.width);
+          x = s.startLayer.x + (s.startLayer.width - newW);
+          width = newW;
+          height = clamp(s.startLayer.height + dyPct, MIN_PCT, 100 - y);
+          break;
+        }
+      }
+
+      updateLayer(layer.id, {
+        x: Math.round(x * 10) / 10,
+        y: Math.round(y * 10) / 10,
+        width: Math.round(width * 10) / 10,
+        height: Math.round(height * 10) / 10,
+      });
+    },
+    [layer.id, updateLayer]
+  );
+
+  const endDrag = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    const s = startRef.current;
+    if (!s || s.pointerId !== e.pointerId) return;
+    try {
+      s.target.releasePointerCapture(e.pointerId);
+    } catch {
+      /* noop */
+    }
+    startRef.current = null;
+  }, []);
+
+  const handleClasses =
+    "absolute bg-primary border border-white/80 shadow-md touch-none";
+  const cornerSize = "w-3.5 h-3.5";
+  const sideSize = "w-3 h-3";
+
+  return (
+    <div
+      className={`absolute select-none touch-none ${
+        isActive ? "ring-2 ring-primary" : "ring-1 ring-primary/40"
+      }`}
+      style={{
+        left: `${layer.x}%`,
+        top: `${layer.y}%`,
+        width: `${layer.width}%`,
+        height: `${layer.height}%`,
+      }}
+      onPointerDown={() => onActivate()}
+    >
+      <div
+        className="absolute -top-6 left-0 bg-primary/90 text-primary-foreground text-[10px] px-2 py-0.5 rounded-t font-medium truncate max-w-full pointer-events-none"
+      >
+        {layer.label}
+      </div>
+
+      {/* iframe sits behind the drag surface */}
+      <iframe
+        src={layer.url}
+        className="w-full h-full opacity-80 pointer-events-none"
+        sandbox="allow-scripts allow-same-origin"
+      />
+
+      {/* move surface — covers the full layer */}
+      <div
+        className="absolute inset-0 cursor-move touch-none bg-primary/10 hover:bg-primary/15 active:bg-primary/20 transition-colors"
+        onPointerDown={beginDrag("move")}
+        onPointerMove={handleMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        aria-label={`Drag ${layer.label}`}
+      />
+
+      {/* edge handles */}
+      <div
+        className={`${handleClasses} ${sideSize} left-1/2 -top-1.5 -translate-x-1/2 cursor-n-resize rounded-sm`}
+        onPointerDown={beginDrag("n")}
+        onPointerMove={handleMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      />
+      <div
+        className={`${handleClasses} ${sideSize} left-1/2 -bottom-1.5 -translate-x-1/2 cursor-s-resize rounded-sm`}
+        onPointerDown={beginDrag("s")}
+        onPointerMove={handleMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      />
+      <div
+        className={`${handleClasses} ${sideSize} top-1/2 -left-1.5 -translate-y-1/2 cursor-w-resize rounded-sm`}
+        onPointerDown={beginDrag("w")}
+        onPointerMove={handleMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      />
+      <div
+        className={`${handleClasses} ${sideSize} top-1/2 -right-1.5 -translate-y-1/2 cursor-e-resize rounded-sm`}
+        onPointerDown={beginDrag("e")}
+        onPointerMove={handleMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      />
+
+      {/* corner handles */}
+      <div
+        className={`${handleClasses} ${cornerSize} -top-2 -left-2 cursor-nw-resize rounded-sm`}
+        onPointerDown={beginDrag("nw")}
+        onPointerMove={handleMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      />
+      <div
+        className={`${handleClasses} ${cornerSize} -top-2 -right-2 cursor-ne-resize rounded-sm`}
+        onPointerDown={beginDrag("ne")}
+        onPointerMove={handleMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      />
+      <div
+        className={`${handleClasses} ${cornerSize} -bottom-2 -left-2 cursor-sw-resize rounded-sm`}
+        onPointerDown={beginDrag("sw")}
+        onPointerMove={handleMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      />
+      <div
+        className={`${handleClasses} ${cornerSize} -bottom-2 -right-2 cursor-se-resize rounded-sm`}
+        onPointerDown={beginDrag("se")}
+        onPointerMove={handleMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      />
     </div>
   );
 }
