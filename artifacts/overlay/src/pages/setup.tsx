@@ -6,23 +6,53 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Trash2, Copy, Plus, ArrowUp, ArrowDown, ExternalLink, Settings2, LayoutTemplate, Magnet, Monitor, Smartphone, ArrowUpLeft, ArrowUpRight, ArrowDownLeft, ArrowDownRight, Square, Maximize, CopyPlus, Image as ImageIcon, X } from "lucide-react";
+import { Trash2, Copy, Plus, ArrowUp, ArrowDown, ExternalLink, Settings2, LayoutTemplate, Magnet, Monitor, Smartphone, ArrowUpLeft, ArrowUpRight, ArrowDownLeft, ArrowDownRight, Square, Maximize, CopyPlus, Image as ImageIcon, X, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import LZString from "lz-string";
 
 type Aspect = "16:9" | "9:16";
 const ASPECT_STORAGE_KEY = "stack-overlay:aspect";
 
+const MAX_BG_FILE_BYTES = 4 * 1024 * 1024;
+
 export default function SetupPage() {
   const { layers, addLayer, updateLayer, removeLayer, duplicateLayer, moveLayerUp, moveLayerDown, background, setBackground } = useLayers();
   const [newUrl, setNewUrl] = useState("");
   const [newLabel, setNewLabel] = useState("");
+  const bgFileInputRef = useRef<HTMLInputElement>(null);
   const [aspect, setAspect] = useState<Aspect>(() => {
     if (typeof window === "undefined") return "16:9";
     const saved = window.localStorage.getItem(ASPECT_STORAGE_KEY);
     return saved === "9:16" ? "9:16" : "16:9";
   });
   const { toast } = useToast();
+
+  const handleBackgroundFile = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Unsupported file", description: "Please choose an image or GIF.", variant: "destructive" });
+      return;
+    }
+    if (file.size > MAX_BG_FILE_BYTES) {
+      toast({
+        title: "File too large",
+        description: `Max ${Math.round(MAX_BG_FILE_BYTES / 1024 / 1024)} MB. Larger files make the OBS URL very long.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        setBackground(result);
+        toast({ title: "Background loaded", description: file.name });
+      }
+    };
+    reader.onerror = () => {
+      toast({ title: "Failed to read file", variant: "destructive" });
+    };
+    reader.readAsDataURL(file);
+  };
 
   const setAspectAndSave = (next: Aspect) => {
     setAspect(next);
@@ -106,15 +136,16 @@ export default function SetupPage() {
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <div className="space-y-2 bg-muted/30 p-4 rounded-xl border border-border/50">
             <Label htmlFor="bg-url" className="flex items-center gap-2">
-              <ImageIcon size={14} /> Background Image / GIF URL
+              <ImageIcon size={14} /> Background Image / GIF
             </Label>
             <div className="flex gap-2">
               <Input
                 id="bg-url"
-                placeholder="https://example.com/background.gif"
-                value={background}
+                placeholder="Paste image / GIF URL"
+                value={background.startsWith("data:") ? "" : background}
                 onChange={(e) => setBackground(e.target.value)}
                 className="text-xs"
+                disabled={background.startsWith("data:")}
               />
               {background && (
                 <Button
@@ -129,9 +160,36 @@ export default function SetupPage() {
                 </Button>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Paste a direct image or GIF URL. Renders behind every layer.
-            </p>
+            <input
+              ref={bgFileInputRef}
+              type="file"
+              accept="image/*,image/gif"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleBackgroundFile(file);
+                e.target.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={() => bgFileInputRef.current?.click()}
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              {background.startsWith("data:") ? "Replace uploaded file" : "Upload from device"}
+            </Button>
+            {background.startsWith("data:") && (
+              <p className="text-xs text-muted-foreground">
+                Using uploaded file ({Math.round((background.length * 0.75) / 1024)} KB embedded in URL).
+              </p>
+            )}
+            {!background && (
+              <p className="text-xs text-muted-foreground">
+                Leave empty for a fully transparent overlay.
+              </p>
+            )}
           </div>
 
           <form onSubmit={handleAddLayer} className="space-y-4 bg-muted/30 p-4 rounded-xl border border-border/50">
