@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "TikFinity Overlay Combiner"
+version = "1.0.0"
+id = "artifacts/overlay"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23168
+
+[services.development]
+run = "pnpm --filter @workspace/overlay run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/overlay", "run", "build" ]
+publicDir = "artifacts/overlay/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23168"
+BASE_PATH = "/"
