@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Trash2, Copy, Plus, ArrowUp, ArrowDown, ExternalLink, Settings2, LayoutTemplate } from "lucide-react";
+import { Trash2, Copy, Plus, ArrowUp, ArrowDown, ExternalLink, Settings2, LayoutTemplate, Magnet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import LZString from "lz-string";
 
@@ -220,7 +220,7 @@ export default function SetupPage() {
       </div>
 
       {/* Right Content - Preview */}
-      <div className="flex-1 bg-background flex items-center justify-center p-8 overflow-hidden relative">
+      <div className="flex-1 bg-background flex flex-col items-stretch justify-center p-8 overflow-hidden relative gap-4">
         <div className="absolute inset-0 checkered-pattern opacity-50 z-0"></div>
 
         <PreviewCanvas
@@ -237,34 +237,64 @@ type PreviewCanvasProps = {
   updateLayer: (id: string, patch: Partial<Layer>) => void;
 };
 
+const GRID_STEP = 5;
+
 function PreviewCanvas({ layers, updateLayer }: PreviewCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [snap, setSnap] = useState(false);
 
   return (
-    <div
-      ref={canvasRef}
-      className="relative w-full max-w-5xl aspect-video bg-black/40 border border-white/10 rounded-xl overflow-hidden shadow-2xl z-10 ring-1 ring-white/5"
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) setActiveId(null);
-      }}
-    >
-      {layers.filter((l) => l.visible).map((layer) => (
-        <InteractiveLayer
-          key={layer.id}
-          layer={layer}
-          canvasRef={canvasRef}
-          isActive={activeId === layer.id}
-          onActivate={() => setActiveId(layer.id)}
-          updateLayer={updateLayer}
-        />
-      ))}
-
-      {layers.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/50 font-medium pointer-events-none">
-          16:9 OBS Canvas Preview
+    <div className="relative z-10 mx-auto w-full max-w-5xl flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3 bg-card/70 backdrop-blur border border-border/60 rounded-lg px-4 py-2">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Magnet size={14} />
+          <span>Snap to {GRID_STEP}% grid</span>
         </div>
-      )}
+        <Switch
+          checked={snap}
+          onCheckedChange={setSnap}
+          aria-label="Toggle snap to grid"
+        />
+      </div>
+
+      <div
+        ref={canvasRef}
+        className="relative w-full aspect-video bg-black/40 border border-white/10 rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/5"
+        onPointerDown={(e) => {
+          if (e.target === e.currentTarget) setActiveId(null);
+        }}
+      >
+        {snap && (
+          <div
+            aria-hidden
+            className="absolute inset-0 pointer-events-none opacity-25"
+            style={{
+              backgroundImage:
+                "linear-gradient(to right, rgba(255,255,255,0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.18) 1px, transparent 1px)",
+              backgroundSize: `${GRID_STEP}% ${GRID_STEP}%`,
+            }}
+          />
+        )}
+
+        {layers.filter((l) => l.visible).map((layer) => (
+          <InteractiveLayer
+            key={layer.id}
+            layer={layer}
+            canvasRef={canvasRef}
+            isActive={activeId === layer.id}
+            onActivate={() => setActiveId(layer.id)}
+            updateLayer={updateLayer}
+            snap={snap}
+          />
+        ))}
+
+        {layers.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/50 font-medium pointer-events-none">
+            16:9 OBS Canvas Preview
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -275,6 +305,7 @@ type InteractiveLayerProps = {
   isActive: boolean;
   onActivate: () => void;
   updateLayer: (id: string, patch: Partial<Layer>) => void;
+  snap: boolean;
 };
 
 type DragMode =
@@ -300,7 +331,12 @@ function InteractiveLayer({
   isActive,
   onActivate,
   updateLayer,
+  snap,
 }: InteractiveLayerProps) {
+  const snapRef = useRef(snap);
+  snapRef.current = snap;
+  const snapVal = (n: number) =>
+    snapRef.current ? Math.round(n / GRID_STEP) * GRID_STEP : n;
   const startRef = useRef<{
     pointerId: number;
     mode: DragMode;
@@ -356,52 +392,52 @@ function InteractiveLayer({
 
       switch (s.mode) {
         case "move":
-          x = clamp(s.startLayer.x + dxPct, 0, 100 - width);
-          y = clamp(s.startLayer.y + dyPct, 0, 100 - height);
+          x = clamp(snapVal(s.startLayer.x + dxPct), 0, 100 - width);
+          y = clamp(snapVal(s.startLayer.y + dyPct), 0, 100 - height);
           break;
         case "e":
-          width = clamp(s.startLayer.width + dxPct, MIN_PCT, 100 - x);
+          width = clamp(snapVal(s.startLayer.width + dxPct), MIN_PCT, 100 - x);
           break;
         case "w": {
-          const newW = clamp(s.startLayer.width - dxPct, MIN_PCT, s.startLayer.x + s.startLayer.width);
+          const newW = clamp(snapVal(s.startLayer.width - dxPct), MIN_PCT, s.startLayer.x + s.startLayer.width);
           x = s.startLayer.x + (s.startLayer.width - newW);
           width = newW;
           break;
         }
         case "s":
-          height = clamp(s.startLayer.height + dyPct, MIN_PCT, 100 - y);
+          height = clamp(snapVal(s.startLayer.height + dyPct), MIN_PCT, 100 - y);
           break;
         case "n": {
-          const newH = clamp(s.startLayer.height - dyPct, MIN_PCT, s.startLayer.y + s.startLayer.height);
+          const newH = clamp(snapVal(s.startLayer.height - dyPct), MIN_PCT, s.startLayer.y + s.startLayer.height);
           y = s.startLayer.y + (s.startLayer.height - newH);
           height = newH;
           break;
         }
         case "ne": {
-          width = clamp(s.startLayer.width + dxPct, MIN_PCT, 100 - x);
-          const newH = clamp(s.startLayer.height - dyPct, MIN_PCT, s.startLayer.y + s.startLayer.height);
+          width = clamp(snapVal(s.startLayer.width + dxPct), MIN_PCT, 100 - x);
+          const newH = clamp(snapVal(s.startLayer.height - dyPct), MIN_PCT, s.startLayer.y + s.startLayer.height);
           y = s.startLayer.y + (s.startLayer.height - newH);
           height = newH;
           break;
         }
         case "nw": {
-          const newW = clamp(s.startLayer.width - dxPct, MIN_PCT, s.startLayer.x + s.startLayer.width);
+          const newW = clamp(snapVal(s.startLayer.width - dxPct), MIN_PCT, s.startLayer.x + s.startLayer.width);
           x = s.startLayer.x + (s.startLayer.width - newW);
           width = newW;
-          const newH = clamp(s.startLayer.height - dyPct, MIN_PCT, s.startLayer.y + s.startLayer.height);
+          const newH = clamp(snapVal(s.startLayer.height - dyPct), MIN_PCT, s.startLayer.y + s.startLayer.height);
           y = s.startLayer.y + (s.startLayer.height - newH);
           height = newH;
           break;
         }
         case "se":
-          width = clamp(s.startLayer.width + dxPct, MIN_PCT, 100 - x);
-          height = clamp(s.startLayer.height + dyPct, MIN_PCT, 100 - y);
+          width = clamp(snapVal(s.startLayer.width + dxPct), MIN_PCT, 100 - x);
+          height = clamp(snapVal(s.startLayer.height + dyPct), MIN_PCT, 100 - y);
           break;
         case "sw": {
-          const newW = clamp(s.startLayer.width - dxPct, MIN_PCT, s.startLayer.x + s.startLayer.width);
+          const newW = clamp(snapVal(s.startLayer.width - dxPct), MIN_PCT, s.startLayer.x + s.startLayer.width);
           x = s.startLayer.x + (s.startLayer.width - newW);
           width = newW;
-          height = clamp(s.startLayer.height + dyPct, MIN_PCT, 100 - y);
+          height = clamp(snapVal(s.startLayer.height + dyPct), MIN_PCT, 100 - y);
           break;
         }
       }
