@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "TikFinity Overlay Combiner"
+title = "Stack Overlay"
 version = "1.0.0"
 id = "artifacts/overlay"
 router = "path"

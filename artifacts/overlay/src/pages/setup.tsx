@@ -74,15 +74,6 @@ export default function SetupPage() {
     }
   };
 
-  const isTikFinityUrl = (url: string) => {
-    try {
-      const hostname = new URL(url).hostname;
-      return hostname.includes("tikfinity.com") || hostname.includes("tikfinitylinks.com");
-    } catch {
-      return false;
-    }
-  };
-
   const handleAddLayer = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUrl || !newLabel) return;
@@ -129,7 +120,7 @@ export default function SetupPage() {
             <h1 className="text-2xl font-bold tracking-tight">Stack Overlay</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            Combine multiple TikFinity widgets into a single OBS browser source.
+            Combine multiple browser source widgets into a single OBS browser source.
           </p>
         </div>
 
@@ -197,14 +188,11 @@ export default function SetupPage() {
               <Label htmlFor="url">Browser Source URL</Label>
               <Input
                 id="url"
-                placeholder="https://tikfinitylinks.com/..."
+                placeholder="https://example.com/widget"
                 value={newUrl}
                 onChange={(e) => setNewUrl(e.target.value)}
                 className="mt-1.5"
               />
-              {newUrl && !isTikFinityUrl(newUrl) && isValidUrl(newUrl) && (
-                <p className="text-xs text-yellow-500 mt-1">Warning: URL does not appear to be a TikFinity link.</p>
-              )}
             </div>
             <div>
               <Label htmlFor="label">Layer Name</Label>
