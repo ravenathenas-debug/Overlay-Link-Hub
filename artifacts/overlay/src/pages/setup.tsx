@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Trash2, Copy, Plus, ArrowUp, ArrowDown, ExternalLink, Settings2, LayoutTemplate, Magnet, Monitor, Smartphone } from "lucide-react";
+import { Trash2, Copy, Plus, ArrowUp, ArrowDown, ExternalLink, Settings2, LayoutTemplate, Magnet, Monitor, Smartphone, ArrowUpLeft, ArrowUpRight, ArrowDownLeft, ArrowDownRight, Square, Maximize } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import LZString from "lz-string";
 
@@ -262,12 +262,52 @@ type PreviewCanvasProps = {
 
 const GRID_STEP = 5;
 
+type Preset = "tl" | "tr" | "center" | "bl" | "br" | "fill";
+
 function PreviewCanvas({ layers, updateLayer, aspect, setAspect }: PreviewCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [snap, setSnap] = useState(false);
 
   const isPortrait = aspect === "9:16";
+  const activeLayer = layers.find((l) => l.id === activeId) ?? null;
+
+  const applyPreset = (preset: Preset) => {
+    if (!activeLayer) return;
+    const w = activeLayer.width;
+    const h = activeLayer.height;
+    let next: Partial<Layer> = {};
+    switch (preset) {
+      case "tl":
+        next = { x: 0, y: 0 };
+        break;
+      case "tr":
+        next = { x: 100 - w, y: 0 };
+        break;
+      case "center":
+        next = { x: (100 - w) / 2, y: (100 - h) / 2 };
+        break;
+      case "bl":
+        next = { x: 0, y: 100 - h };
+        break;
+      case "br":
+        next = { x: 100 - w, y: 100 - h };
+        break;
+      case "fill":
+        next = { x: 0, y: 0, width: 100, height: 100 };
+        break;
+    }
+    updateLayer(activeLayer.id, next);
+  };
+
+  const presetButtons: { id: Preset; label: string; icon: typeof Square }[] = [
+    { id: "tl", label: "Top Left", icon: ArrowUpLeft },
+    { id: "tr", label: "Top Right", icon: ArrowUpRight },
+    { id: "center", label: "Center", icon: Square },
+    { id: "bl", label: "Bottom Left", icon: ArrowDownLeft },
+    { id: "br", label: "Bottom Right", icon: ArrowDownRight },
+    { id: "fill", label: "Full Screen", icon: Maximize },
+  ];
 
   return (
     <div className="relative z-10 mx-auto flex flex-col gap-3 w-full max-w-5xl min-h-0 flex-1">
@@ -309,6 +349,35 @@ function PreviewCanvas({ layers, updateLayer, aspect, setAspect }: PreviewCanvas
           />
         </label>
       </div>
+
+      {activeLayer && (
+        <div className="flex flex-wrap items-center gap-3 bg-card/70 backdrop-blur border border-border/60 rounded-lg px-4 py-2">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+            <LayoutTemplate size={13} />
+            <span className="truncate">
+              Quick position: <span className="text-foreground font-medium">{activeLayer.label}</span>
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1 ml-auto">
+            {presetButtons.map((p) => {
+              const Icon = p.icon;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => applyPreset(p.id)}
+                  title={p.label}
+                  aria-label={p.label}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                >
+                  <Icon size={13} />
+                  <span className="hidden sm:inline">{p.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 flex items-center justify-center">
         <div
