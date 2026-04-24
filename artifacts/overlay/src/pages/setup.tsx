@@ -6,15 +6,34 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Trash2, Copy, Plus, ArrowUp, ArrowDown, ExternalLink, Settings2, LayoutTemplate, Magnet } from "lucide-react";
+import { Trash2, Copy, Plus, ArrowUp, ArrowDown, ExternalLink, Settings2, LayoutTemplate, Magnet, Monitor, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import LZString from "lz-string";
+
+type Aspect = "16:9" | "9:16";
+const ASPECT_STORAGE_KEY = "stack-overlay:aspect";
 
 export default function SetupPage() {
   const { layers, addLayer, updateLayer, removeLayer, moveLayerUp, moveLayerDown } = useLayers();
   const [newUrl, setNewUrl] = useState("");
   const [newLabel, setNewLabel] = useState("");
+  const [aspect, setAspect] = useState<Aspect>(() => {
+    if (typeof window === "undefined") return "16:9";
+    const saved = window.localStorage.getItem(ASPECT_STORAGE_KEY);
+    return saved === "9:16" ? "9:16" : "16:9";
+  });
   const { toast } = useToast();
+
+  const setAspectAndSave = (next: Aspect) => {
+    setAspect(next);
+    try {
+      window.localStorage.setItem(ASPECT_STORAGE_KEY, next);
+    } catch {
+      /* noop */
+    }
+  };
+
+  const obsDimensions = aspect === "9:16" ? "1080 × 1920" : "1920 × 1080";
 
   const isValidUrl = (url: string) => {
     try {
@@ -214,18 +233,20 @@ export default function SetupPage() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
-            Copy this URL and add it as a <strong>Browser Source</strong> in OBS. Set width to 1920 and height to 1080.
+            Copy this URL and add it as a <strong>Browser Source</strong> in OBS. Set the size to <strong>{obsDimensions}</strong>.
           </p>
         </div>
       </div>
 
       {/* Right Content - Preview */}
-      <div className="flex-1 bg-background flex flex-col items-stretch justify-center p-8 overflow-hidden relative gap-4">
+      <div className="flex-1 min-h-0 bg-background flex flex-col items-stretch justify-center p-6 overflow-hidden relative gap-4">
         <div className="absolute inset-0 checkered-pattern opacity-50 z-0"></div>
 
         <PreviewCanvas
           layers={layers}
           updateLayer={updateLayer}
+          aspect={aspect}
+          setAspect={setAspectAndSave}
         />
       </div>
     </div>
@@ -235,65 +256,102 @@ export default function SetupPage() {
 type PreviewCanvasProps = {
   layers: Layer[];
   updateLayer: (id: string, patch: Partial<Layer>) => void;
+  aspect: Aspect;
+  setAspect: (a: Aspect) => void;
 };
 
 const GRID_STEP = 5;
 
-function PreviewCanvas({ layers, updateLayer }: PreviewCanvasProps) {
+function PreviewCanvas({ layers, updateLayer, aspect, setAspect }: PreviewCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [snap, setSnap] = useState(false);
 
+  const isPortrait = aspect === "9:16";
+
   return (
-    <div className="relative z-10 mx-auto w-full max-w-5xl flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-3 bg-card/70 backdrop-blur border border-border/60 rounded-lg px-4 py-2">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+    <div className="relative z-10 mx-auto flex flex-col gap-3 w-full max-w-5xl min-h-0 flex-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-card/70 backdrop-blur border border-border/60 rounded-lg px-4 py-2">
+        <div className="flex items-center gap-1 rounded-md bg-muted/50 p-1">
+          <button
+            type="button"
+            onClick={() => setAspect("16:9")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+              !isPortrait
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            aria-pressed={!isPortrait}
+          >
+            <Monitor size={13} /> 16:9
+          </button>
+          <button
+            type="button"
+            onClick={() => setAspect("9:16")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+              isPortrait
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            aria-pressed={isPortrait}
+          >
+            <Smartphone size={13} /> 9:16
+          </button>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
           <Magnet size={14} />
           <span>Snap to {GRID_STEP}% grid</span>
-        </div>
-        <Switch
-          checked={snap}
-          onCheckedChange={setSnap}
-          aria-label="Toggle snap to grid"
-        />
+          <Switch
+            checked={snap}
+            onCheckedChange={setSnap}
+            aria-label="Toggle snap to grid"
+          />
+        </label>
       </div>
 
-      <div
-        ref={canvasRef}
-        className="relative w-full aspect-video bg-black/40 border border-white/10 rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/5"
-        onPointerDown={(e) => {
-          if (e.target === e.currentTarget) setActiveId(null);
-        }}
-      >
-        {snap && (
-          <div
-            aria-hidden
-            className="absolute inset-0 pointer-events-none opacity-25"
-            style={{
-              backgroundImage:
-                "linear-gradient(to right, rgba(255,255,255,0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.18) 1px, transparent 1px)",
-              backgroundSize: `${GRID_STEP}% ${GRID_STEP}%`,
-            }}
-          />
-        )}
+      <div className="flex-1 min-h-0 flex items-center justify-center">
+        <div
+          ref={canvasRef}
+          className={`relative bg-black/40 border border-white/10 rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/5 ${
+            isPortrait
+              ? "h-full max-h-full aspect-[9/16]"
+              : "w-full max-w-full aspect-video"
+          }`}
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) setActiveId(null);
+          }}
+        >
+          {snap && (
+            <div
+              aria-hidden
+              className="absolute inset-0 pointer-events-none opacity-25"
+              style={{
+                backgroundImage:
+                  "linear-gradient(to right, rgba(255,255,255,0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.18) 1px, transparent 1px)",
+                backgroundSize: `${GRID_STEP}% ${GRID_STEP}%`,
+              }}
+            />
+          )}
 
-        {layers.filter((l) => l.visible).map((layer) => (
-          <InteractiveLayer
-            key={layer.id}
-            layer={layer}
-            canvasRef={canvasRef}
-            isActive={activeId === layer.id}
-            onActivate={() => setActiveId(layer.id)}
-            updateLayer={updateLayer}
-            snap={snap}
-          />
-        ))}
+          {layers.filter((l) => l.visible).map((layer) => (
+            <InteractiveLayer
+              key={layer.id}
+              layer={layer}
+              canvasRef={canvasRef}
+              isActive={activeId === layer.id}
+              onActivate={() => setActiveId(layer.id)}
+              updateLayer={updateLayer}
+              snap={snap}
+            />
+          ))}
 
-        {layers.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/50 font-medium pointer-events-none">
-            16:9 OBS Canvas Preview
-          </div>
-        )}
+          {layers.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/50 font-medium pointer-events-none text-sm">
+              {aspect} OBS Canvas Preview
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
